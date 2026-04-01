@@ -12,7 +12,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/thassiov/engram-agent/internal/config"
+	"github.com/thassiov/engram-agent/internal/extract"
 	"github.com/thassiov/engram-agent/internal/server"
+	"github.com/thassiov/engram-agent/internal/state"
 	"github.com/thassiov/engram-agent/internal/sync"
 
 	_ "modernc.org/sqlite"
@@ -91,19 +93,26 @@ func newDaemonCmd(configPath *string) *cobra.Command {
 			}
 			defer sqliteDB.Close()
 
+			// Open internal state DB.
+			stateDB, err := state.Open(state.DefaultPath())
+			if err != nil {
+				return fmt.Errorf("opening state DB: %w", err)
+			}
+			defer stateDB.Close()
+
 			// Build PG DSN.
 			dsn := sync.BuildDSN(cfg.PGCredentials)
 
 			// Create sync daemon.
 			syncDaemon := sync.NewDaemon(cfg, sqliteDB, dsn, logger)
 
+			// Create extraction watcher.
+			watcher := extract.NewWatcher(stateDB, cfg.OllamaURL, cfg.OllamaModel, cfg.EngramAPI, logger)
+
 			// Start HTTP hook listener.
+			ctx := cmd.Context()
 			srv := server.New(cfg.ListenAddr, func(n server.Notification) {
-				// Phase 1: just log. Phase 2 will add extraction.
-				logger.Info("hook notification",
-					"session_id", n.SessionID,
-					"event", n.Event,
-				)
+				watcher.HandleNotification(ctx, n.SessionID, n.Event)
 			}, logger)
 
 			go func() {
@@ -133,6 +142,7 @@ func newStatusCmd(configPath *string) *cobra.Command {
 			fmt.Printf("Engram DB:   %s\n", cfg.EngramDB)
 			fmt.Printf("Engram API:  %s\n", cfg.EngramAPI)
 			fmt.Printf("Listen:      %s\n", cfg.ListenAddr)
+			fmt.Printf("Ollama:      %s (%s)\n", cfg.OllamaURL, cfg.OllamaModel)
 
 			if cfg.PullsAll() {
 				fmt.Println("Pull filter: all")

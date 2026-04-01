@@ -17,6 +17,8 @@ type Config struct {
 	EngramDB      string      `json:"engram_db"`      // Path to engram's SQLite database.
 	EngramAPI     string      `json:"engram_api"`     // Engram HTTP API base URL.
 	ListenAddr    string      `json:"listen_addr"`    // HTTP listen address for hook notifications.
+	OllamaURL     string      `json:"ollama_url"`     // Ollama API URL for observation extraction.
+	OllamaModel   string      `json:"ollama_model"`   // Ollama model name for extraction.
 	PullFilter    interface{} `json:"pull_filter"`    // "all" or {"types": ["preference", "config"]}.
 }
 
@@ -69,6 +71,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = "127.0.0.1:7438"
+	}
+	if cfg.OllamaURL == "" {
+		cfg.OllamaURL = "http://127.0.0.1:11434"
+	}
+	if cfg.OllamaModel == "" {
+		cfg.OllamaModel = "phi4-mini"
 	}
 	if cfg.PullFilter == nil {
 		cfg.PullFilter = "all"
