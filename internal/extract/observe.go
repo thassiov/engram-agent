@@ -22,26 +22,38 @@ type Observation struct {
 // SystemPrompt is the extraction prompt for the LLM.
 const SystemPrompt = `You extract structured observations from coding session transcripts. Output ONLY valid JSONL — one JSON object per line. No markdown, no code blocks, no commentary.
 
-IMPORTANT: Be selective. Only extract SIGNIFICANT observations — things worth remembering in future sessions. Skip:
-- Questions the user asked (unless the question reveals a preference or constraint)
+STRICT RULES:
+- DO NOT expand acronyms or abbreviations. Write them exactly as they appear (OCI, LXC, PG, PM, TLP, etc.)
+- DO NOT guess what terms mean. If unsure, use the term verbatim from the conversation.
+- DO NOT invent details not present in the text. Only describe what actually happened.
+- DO NOT add explanations or context the user did not provide.
+- Use correct spelling for all names and tools mentioned in the conversation.
+
+Be selective. Only extract SIGNIFICANT observations worth remembering in future sessions. Skip:
+- Questions without conclusions
 - Minor actions (checking files, running diagnostic commands)
 - Troubleshooting steps that led nowhere
-- The user asking for explanations (unless they learned something non-obvious)
 
-Focus on extracting:
-- config: A configuration file was created or changed (include what file and what settings)
-- decision: A choice was made between alternatives (include what was chosen and why)
-- preference: The user stated how they want things done (include the constraint and reasoning)
-- discovery: Something non-obvious was learned about the system (include what and why it matters)
+Observation types:
+- config: A configuration file was created or changed
+- decision: A choice was made between alternatives (include what and why)
+- preference: The user stated how they want things done
+- discovery: Something non-obvious was learned
 - bugfix: A problem was identified and fixed (include root cause and fix)
-- architecture: A system design choice was made (include the design and tradeoffs)
-- pattern: A convention or approach was established (include the pattern and where it applies)
+- architecture: A system design choice was made
+- pattern: A convention or approach was established
 
-Each JSON object must have: type, title (short verb-phrase starting with a verb), content (2-4 sentences: what was done/decided, why, what files/systems affected), scope (personal or project), project (system name like portus, engram, grid.local, general), topic_key (lowercase area/subject like portus/va-api, workflow/radio-devices).
+Each JSON object must have these fields:
+- type: one of the types above
+- title: short verb-phrase (start with a verb, max 10 words)
+- content: 2-3 sentences describing what was done/decided and why
+- scope: "personal" or "project"
+- project: system name exactly as mentioned (e.g. portus, engram, grid.local, general)
+- topic_key: lowercase area/subject (e.g. portus/va-api, engram/sync)
 
 Examples:
-{"type":"config","title":"Enabled VA-API hardware video decode for Chromium","content":"Created ~/.config/chromium-flags.conf with VaapiVideoDecodeLinuxGL and related flags. Offloads video decode from CPU to Intel Iris Xe GPU.","scope":"project","project":"portus","topic_key":"portus/chromium-vaapi"}
-{"type":"preference","title":"Never disable WiFi or Bluetooth via power management","content":"User has active SSH sessions over WiFi and uses Bluetooth headphones and mouse. TLP radio device wizard rules must remain unconfigured.","scope":"personal","project":"general","topic_key":"workflow/radio-devices"}`
+{"type":"config","title":"Enabled VA-API hardware video decode for Chromium","content":"Created ~/.config/chromium-flags.conf with VaapiVideoDecodeLinuxGL flags. Offloads video decode from CPU to Iris Xe GPU.","scope":"project","project":"portus","topic_key":"portus/chromium-vaapi"}
+{"type":"decision","title":"Chose TLP drop-in config over editing main file","content":"Created /etc/tlp.d/01-portus.conf instead of modifying /etc/tlp.conf. Keeps main config stock so pacman upgrades don't overwrite settings.","scope":"project","project":"portus","topic_key":"portus/tlp-config"}`
 
 // jsonObjectRe matches top-level JSON objects in text.
 var jsonObjectRe = regexp.MustCompile(`\{[^{}]*\}`)
