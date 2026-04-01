@@ -119,7 +119,7 @@ func newDaemonCmd(configPath *string) *cobra.Command {
 			// Start HTTP hook listener.
 			ctx := cmd.Context()
 			srv := server.New(cfg.ListenAddr, func(n server.Notification) {
-				watcher.HandleNotification(ctx, n.SessionID, n.Event)
+				watcher.HandleNotification(ctx, n.SessionID, n.Event, n.Reset)
 			}, logger)
 
 			go func() {

@@ -87,3 +87,11 @@ func (d *DB) Log(level, component, sessionID, message string) {
 		level, component, sessionID, message,
 	)
 }
+
+// RecordEvent records an administrative or lifecycle event.
+func (d *DB) RecordEvent(sessionID, action, details string) {
+	d.db.Exec( //nolint:errcheck // best-effort
+		`INSERT INTO events (session_id, action, details) VALUES (?, ?, ?)`,
+		sessionID, action, details,
+	)
+}

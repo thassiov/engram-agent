@@ -99,6 +99,14 @@ func migrate(db *sql.DB) error {
 			dims           INTEGER NOT NULL
 		);
 
+		CREATE TABLE IF NOT EXISTS events (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			timestamp    TEXT NOT NULL DEFAULT (datetime('now')),
+			session_id   TEXT,
+			action       TEXT NOT NULL,
+			details      TEXT
+		);
+
 		CREATE TABLE IF NOT EXISTS logs (
 			id           INTEGER PRIMARY KEY AUTOINCREMENT,
 			timestamp    TEXT NOT NULL DEFAULT (datetime('now')),

@@ -11,7 +11,8 @@ import (
 // Notification represents a hook event from Claude Code.
 type Notification struct {
 	SessionID string `json:"session_id"`
-	Event     string `json:"event,omitempty"` // "stop" or empty for prompt submit
+	Event     string `json:"event,omitempty"` // "stop", "force", or empty for prompt submit
+	Reset     bool   `json:"reset,omitempty"` // Reset last_turn to 0 before extracting.
 }
 
 // NotifyHandler is called when a hook notification is received.

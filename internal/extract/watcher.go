@@ -45,7 +45,7 @@ func NewWatcher(stateDB *state.DB, ollamaURL, ollamaModel, engramAPI, embedURL s
 }
 
 // HandleNotification processes a hook notification from Claude Code.
-func (w *Watcher) HandleNotification(ctx context.Context, sessionID, event string) {
+func (w *Watcher) HandleNotification(ctx context.Context, sessionID, event string, reset bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -61,6 +61,24 @@ func (w *Watcher) HandleNotification(ctx context.Context, sessionID, event strin
 	if err != nil {
 		w.logger.Error("failed to get session state", "session_id", sessionID, "error", err)
 		return
+	}
+
+	// Full reset if requested — delete all data and reprocess from beginning.
+	if reset {
+		obs, vecs, chunks, err := w.stateDB.ResetSession(sessionID)
+		if err != nil {
+			w.logger.Error("failed to reset session", "session_id", sessionID, "error", err)
+			return
+		}
+		session.LastTurn = 0
+		w.logger.Info("session reset",
+			"session_id", sessionID,
+			"deleted_observations", obs,
+			"deleted_vectors", vecs,
+			"deleted_chunks", chunks,
+		)
+		w.stateDB.RecordEvent(sessionID, "reset",
+			fmt.Sprintf("deleted %d observations, %d vectors, %d chunks", obs, vecs, chunks))
 	}
 
 	// Count current turns.
@@ -84,6 +102,18 @@ func (w *Watcher) HandleNotification(ctx context.Context, sessionID, event strin
 		if err := w.stateDB.EndSession(sessionID); err != nil {
 			w.logger.Error("failed to end session", "session_id", sessionID, "error", err)
 		}
+		return
+	}
+
+	// Force extraction regardless of turn count.
+	if event == "force" {
+		if newTurns <= 0 {
+			w.logger.Info("force: no new turns to extract", "session_id", sessionID)
+			return
+		}
+		w.logger.Info("force extraction triggered", "session_id", sessionID, "new_turns", newTurns)
+		w.stateDB.RecordEvent(sessionID, "force_extract", fmt.Sprintf("%d new turns", newTurns))
+		w.runExtraction(ctx, session, currentTurns)
 		return
 	}
 
@@ -345,11 +375,12 @@ func findSessionLog(sessionID string) string {
 	return found
 }
 
-// countUserTurns counts user messages in a session log (fast grep equivalent).
+// countUserTurns parses the session and counts turns with actual text content.
+// This matches what ParseSessionTurns returns, avoiding mismatches with raw grep counts.
 func countUserTurns(path string) (int, error) {
-	data, err := os.ReadFile(path)
+	turns, err := ParseSessionTurns(path)
 	if err != nil {
-		return 0, fmt.Errorf("reading session log: %w", err)
+		return 0, err
 	}
-	return strings.Count(string(data), `"type":"user"`), nil
+	return len(turns), nil
 }
