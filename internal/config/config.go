@@ -16,10 +16,13 @@ type Config struct {
 	EngramDB    string      `json:"engram_db"`     // Path to engram's SQLite database.
 	EngramAPI   string      `json:"engram_api"`    // Engram HTTP API base URL.
 	ListenAddr  string      `json:"listen_addr"`   // HTTP listen address for hook notifications.
-	OllamaURL   string      `json:"ollama_url"`    // Ollama API URL for observation extraction.
-	OllamaModel string      `json:"ollama_model"`  // Ollama model name for extraction.
-	PullFilter  interface{} `json:"pull_filter"`   // "all" or {"types": ["preference", "config"]}.
-	Postgres    *PGConfig   `json:"postgres"`      // PostgreSQL connection for sync. Omit to disable sync.
+	OllamaURL      string      `json:"ollama_url"`      // Ollama API URL for observation extraction.
+	OllamaModel    string      `json:"ollama_model"`    // Ollama model name for extraction.
+	EmbedURL       string      `json:"embed_url"`       // Fastembed service URL. Omit to skip embedding.
+	EmbedDims      int         `json:"embed_dims"`      // Embedding dimensions (default 768, must match model).
+	DedupThreshold float64     `json:"dedup_threshold"` // Cosine similarity threshold for dedup (default 0.85).
+	PullFilter     interface{} `json:"pull_filter"`     // "all" or {"types": ["preference", "config"]}.
+	Postgres       *PGConfig   `json:"postgres"`        // PostgreSQL connection for sync. Omit to disable sync.
 }
 
 // PGConfig holds PostgreSQL connection settings.
@@ -51,6 +54,11 @@ func (p *PGConfig) DSN() string {
 // SyncEnabled returns true if PostgreSQL sync is configured.
 func (c *Config) SyncEnabled() bool {
 	return c.Postgres != nil && c.Postgres.Host != "" && c.Postgres.Password != ""
+}
+
+// EmbedEnabled returns true if embedding is configured.
+func (c *Config) EmbedEnabled() bool {
+	return c.EmbedURL != ""
 }
 
 // PullFilterTypes returns the list of observation types to filter on pull,
@@ -105,6 +113,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.OllamaModel == "" {
 		cfg.OllamaModel = "phi4-mini"
+	}
+	if cfg.EmbedDims == 0 {
+		cfg.EmbedDims = 768
+	}
+	if cfg.DedupThreshold == 0 {
+		cfg.DedupThreshold = 0.85
 	}
 	if cfg.PullFilter == nil {
 		cfg.PullFilter = "all"

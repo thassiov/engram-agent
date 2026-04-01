@@ -39,6 +39,11 @@ func (d *DB) MarkObservationSaved(id int64) error {
 	return nil
 }
 
+// MarkObservationDuplicate marks an observation as a duplicate (won't be saved to engram).
+func (d *DB) MarkObservationDuplicate(id int64) {
+	d.db.Exec(`UPDATE observations SET status = 'duplicate' WHERE id = ?`, id) //nolint:errcheck
+}
+
 // PendingObservation represents an observation ready to be saved to engram.
 type PendingObservation struct {
 	ID       int64

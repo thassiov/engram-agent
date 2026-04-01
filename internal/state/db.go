@@ -93,6 +93,12 @@ func migrate(db *sql.DB) error {
 			created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 		);
 
+		CREATE TABLE IF NOT EXISTS vectors (
+			observation_id INTEGER PRIMARY KEY REFERENCES observations(id),
+			embedding      BLOB NOT NULL,
+			dims           INTEGER NOT NULL
+		);
+
 		CREATE TABLE IF NOT EXISTS logs (
 			id           INTEGER PRIMARY KEY AUTOINCREMENT,
 			timestamp    TEXT NOT NULL DEFAULT (datetime('now')),

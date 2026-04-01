@@ -114,7 +114,7 @@ func newDaemonCmd(configPath *string) *cobra.Command {
 			}
 
 			// Create extraction watcher.
-			watcher := extract.NewWatcher(stateDB, cfg.OllamaURL, cfg.OllamaModel, cfg.EngramAPI, logger)
+			watcher := extract.NewWatcher(stateDB, cfg.OllamaURL, cfg.OllamaModel, cfg.EngramAPI, cfg.EmbedURL, cfg.DedupThreshold, logger)
 
 			// Start HTTP hook listener.
 			ctx := cmd.Context()
