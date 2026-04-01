@@ -31,7 +31,7 @@ Claude Code ──hook──> engram-agent ──ollama──> observations
                            └── sync to PostgreSQL
 ```
 
-engram-agent replaces 4 bash scripts + the engram-sync Go binary with a single daemon. See the [architecture doc](https://plane.grid.local) for full system diagrams and data flows.
+A single daemon that handles the full lifecycle from session capture to cross-machine availability.
 
 ## Install
 
