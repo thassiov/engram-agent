@@ -11,15 +11,46 @@ import (
 
 // Config holds the agent configuration.
 type Config struct {
-	MachineID     string      `json:"machine_id"`     // Unique machine identifier.
-	Scope         string      `json:"scope"`          // "personal" or "work".
-	PGCredentials string      `json:"pg_credentials"` // Path to credentials.env.
-	EngramDB      string      `json:"engram_db"`      // Path to engram's SQLite database.
-	EngramAPI     string      `json:"engram_api"`     // Engram HTTP API base URL.
-	ListenAddr    string      `json:"listen_addr"`    // HTTP listen address for hook notifications.
-	OllamaURL     string      `json:"ollama_url"`     // Ollama API URL for observation extraction.
-	OllamaModel   string      `json:"ollama_model"`   // Ollama model name for extraction.
-	PullFilter    interface{} `json:"pull_filter"`    // "all" or {"types": ["preference", "config"]}.
+	MachineID   string      `json:"machine_id"`    // Unique machine identifier.
+	Scope       string      `json:"scope"`         // "personal" or "work".
+	EngramDB    string      `json:"engram_db"`     // Path to engram's SQLite database.
+	EngramAPI   string      `json:"engram_api"`    // Engram HTTP API base URL.
+	ListenAddr  string      `json:"listen_addr"`   // HTTP listen address for hook notifications.
+	OllamaURL   string      `json:"ollama_url"`    // Ollama API URL for observation extraction.
+	OllamaModel string      `json:"ollama_model"`  // Ollama model name for extraction.
+	PullFilter  interface{} `json:"pull_filter"`   // "all" or {"types": ["preference", "config"]}.
+	Postgres    *PGConfig   `json:"postgres"`      // PostgreSQL connection for sync. Omit to disable sync.
+}
+
+// PGConfig holds PostgreSQL connection settings.
+type PGConfig struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Database string `json:"database"`
+	User     string `json:"user"`
+	Password string `json:"password"`
+	SSLMode  string `json:"sslmode"`
+}
+
+// DSN builds a PostgreSQL connection string from the config.
+func (p *PGConfig) DSN() string {
+	port := p.Port
+	if port == 0 {
+		port = 5432
+	}
+	sslmode := p.SSLMode
+	if sslmode == "" {
+		sslmode = "disable"
+	}
+	return fmt.Sprintf(
+		"host=%s port=%d dbname=%s user=%s password=%s sslmode=%s tcp_user_timeout=30000",
+		p.Host, port, p.Database, p.User, p.Password, sslmode,
+	)
+}
+
+// SyncEnabled returns true if PostgreSQL sync is configured.
+func (c *Config) SyncEnabled() bool {
+	return c.Postgres != nil && c.Postgres.Host != "" && c.Postgres.Password != ""
 }
 
 // PullFilterTypes returns the list of observation types to filter on pull,
@@ -66,9 +97,6 @@ func Load(path string) (*Config, error) {
 	if cfg.EngramAPI == "" {
 		cfg.EngramAPI = "http://127.0.0.1:7437"
 	}
-	if cfg.PGCredentials == "" {
-		cfg.PGCredentials = "~/.config/grid/credentials.env"
-	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = "127.0.0.1:7438"
 	}
@@ -83,7 +111,6 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg.EngramDB = ExpandHome(cfg.EngramDB)
-	cfg.PGCredentials = ExpandHome(cfg.PGCredentials)
 
 	return &cfg, nil
 }

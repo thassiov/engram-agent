@@ -86,13 +86,6 @@ func newDaemonCmd(configPath *string) *cobra.Command {
 				"scope", cfg.Scope,
 			)
 
-			// Open engram's SQLite DB (read-only for sync).
-			sqliteDB, err := openSQLite(cfg.EngramDB)
-			if err != nil {
-				return fmt.Errorf("opening engram DB: %w", err)
-			}
-			defer sqliteDB.Close()
-
 			// Open internal state DB.
 			stateDB, err := state.Open(state.DefaultPath())
 			if err != nil {
@@ -100,11 +93,25 @@ func newDaemonCmd(configPath *string) *cobra.Command {
 			}
 			defer stateDB.Close()
 
-			// Build PG DSN.
-			dsn := sync.BuildDSN(cfg.PGCredentials)
+			// Start sync daemon if PG is configured.
+			if cfg.SyncEnabled() {
+				sqliteDB, err := openSQLite(cfg.EngramDB)
+				if err != nil {
+					return fmt.Errorf("opening engram DB: %w", err)
+				}
+				defer sqliteDB.Close()
 
-			// Create sync daemon.
-			syncDaemon := sync.NewDaemon(cfg, sqliteDB, dsn, logger)
+				dsn := cfg.Postgres.DSN()
+				syncDaemon := sync.NewDaemon(cfg, sqliteDB, dsn, logger)
+
+				go func() {
+					if err := syncDaemon.Run(cmd.Context()); err != nil {
+						logger.Error("sync daemon stopped", "error", err)
+					}
+				}()
+			} else {
+				logger.Info("sync disabled (no postgres config)")
+			}
 
 			// Create extraction watcher.
 			watcher := extract.NewWatcher(stateDB, cfg.OllamaURL, cfg.OllamaModel, cfg.EngramAPI, logger)
@@ -121,8 +128,10 @@ func newDaemonCmd(configPath *string) *cobra.Command {
 				}
 			}()
 
-			// Run sync daemon (blocks until context is canceled).
-			return syncDaemon.Run(cmd.Context())
+			// Block until shutdown signal.
+			<-cmd.Context().Done()
+			logger.Info("shutting down")
+			return nil
 		},
 	}
 }
@@ -159,8 +168,13 @@ func newStatusCmd(configPath *string) *cobra.Command {
 				fmt.Printf("Push cursor: %d\n", seq)
 			}
 
-			// Try PG connection for pull cursor.
-			dsn := sync.BuildDSN(cfg.PGCredentials)
+			// PG sync status.
+			if !cfg.SyncEnabled() {
+				fmt.Println("Sync:        disabled (no postgres config)")
+				return nil
+			}
+
+			dsn := cfg.Postgres.DSN()
 			pgConn, err := sync.ConnectPG(cmd.Context(), dsn)
 			if err != nil {
 				fmt.Printf("PG status:   unreachable (%v)\n", err)
@@ -175,7 +189,6 @@ func newStatusCmd(configPath *string) *cobra.Command {
 				fmt.Printf("Pull cursor: %d\n", pullSeq)
 			}
 
-			// Count PG mutations.
 			var count int64
 			err = pgConn.QueryRow(cmd.Context(), "SELECT COUNT(*) FROM engram_sync_mutations").Scan(&count)
 			if err != nil {
