@@ -81,8 +81,8 @@ func (c *Client) Chat(ctx context.Context, system, user string) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("sending request: %w", err)
 	}
-	defer resp.Body.Close()               //nolint:errcheck
-	defer io.Copy(io.Discard, resp.Body)  //nolint:errcheck
+	defer resp.Body.Close()              //nolint:errcheck
+	defer io.Copy(io.Discard, resp.Body) //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("unexpected status %d", resp.StatusCode)

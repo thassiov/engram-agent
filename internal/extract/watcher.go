@@ -21,15 +21,15 @@ const (
 
 // Watcher tracks sessions and triggers extraction when enough turns accumulate.
 type Watcher struct {
-	stateDB            *state.DB
-	ollamaURL          string
-	ollamaFallbackURL  string
-	ollamaModel        string
-	engramAPI          string
-	embedURL           string
-	dedupThreshold     float64
-	logger             *slog.Logger
-	mu                 gosync.Mutex // guards concurrent notifications for the same session
+	stateDB           *state.DB
+	ollamaURL         string
+	ollamaFallbackURL string
+	ollamaModel       string
+	engramAPI         string
+	embedURL          string
+	dedupThreshold    float64
+	logger            *slog.Logger
+	mu                gosync.Mutex // guards concurrent notifications for the same session
 }
 
 // NewWatcher creates a new session watcher.

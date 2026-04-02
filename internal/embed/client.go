@@ -56,8 +56,8 @@ func (c *Client) Embed(ctx context.Context, texts []string) ([][]float32, error)
 	if err != nil {
 		return nil, fmt.Errorf("sending embed request: %w", err)
 	}
-	defer resp.Body.Close()               //nolint:errcheck
-	defer io.Copy(io.Discard, resp.Body)  //nolint:errcheck
+	defer resp.Body.Close()              //nolint:errcheck
+	defer io.Copy(io.Discard, resp.Body) //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("embed server returned status %d", resp.StatusCode)
