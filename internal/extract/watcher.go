@@ -21,26 +21,28 @@ const (
 
 // Watcher tracks sessions and triggers extraction when enough turns accumulate.
 type Watcher struct {
-	stateDB        *state.DB
-	ollamaURL      string
-	ollamaModel    string
-	engramAPI      string
-	embedURL       string
-	dedupThreshold float64
-	logger         *slog.Logger
-	mu             gosync.Mutex // guards concurrent notifications for the same session
+	stateDB            *state.DB
+	ollamaURL          string
+	ollamaFallbackURL  string
+	ollamaModel        string
+	engramAPI          string
+	embedURL           string
+	dedupThreshold     float64
+	logger             *slog.Logger
+	mu                 gosync.Mutex // guards concurrent notifications for the same session
 }
 
 // NewWatcher creates a new session watcher.
-func NewWatcher(stateDB *state.DB, ollamaURL, ollamaModel, engramAPI, embedURL string, dedupThreshold float64, logger *slog.Logger) *Watcher {
+func NewWatcher(stateDB *state.DB, ollamaURL, ollamaFallbackURL, ollamaModel, engramAPI, embedURL string, dedupThreshold float64, logger *slog.Logger) *Watcher {
 	return &Watcher{
-		stateDB:        stateDB,
-		ollamaURL:      ollamaURL,
-		ollamaModel:    ollamaModel,
-		engramAPI:      engramAPI,
-		embedURL:       embedURL,
-		dedupThreshold: dedupThreshold,
-		logger:         logger,
+		stateDB:           stateDB,
+		ollamaURL:         ollamaURL,
+		ollamaFallbackURL: ollamaFallbackURL,
+		ollamaModel:       ollamaModel,
+		engramAPI:         engramAPI,
+		embedURL:          embedURL,
+		dedupThreshold:    dedupThreshold,
+		logger:            logger,
 	}
 }
 
@@ -132,16 +134,35 @@ func (w *Watcher) HandleNotification(ctx context.Context, sessionID, event strin
 }
 
 func (w *Watcher) runExtraction(ctx context.Context, session *state.Session, totalTurns int) {
-	// Check ollama reachability.
+	// Check ollama reachability (primary, then fallback).
 	client := ollama.New(w.ollamaURL, w.ollamaModel)
 	if !client.Reachable(ctx) {
-		w.logger.Warn("ollama unreachable, queuing for later",
-			"session_id", session.SessionID,
-			"url", w.ollamaURL,
-		)
-		w.stateDB.Log("warn", "watcher", session.SessionID,
-			fmt.Sprintf("ollama unreachable at %s, extraction skipped", w.ollamaURL))
-		return
+		if w.ollamaFallbackURL != "" {
+			w.logger.Info("primary ollama unreachable, trying fallback",
+				"session_id", session.SessionID,
+				"primary", w.ollamaURL,
+				"fallback", w.ollamaFallbackURL,
+			)
+			client = ollama.New(w.ollamaFallbackURL, w.ollamaModel)
+			if !client.Reachable(ctx) {
+				w.logger.Warn("ollama unreachable (primary and fallback), queuing for later",
+					"session_id", session.SessionID,
+					"primary", w.ollamaURL,
+					"fallback", w.ollamaFallbackURL,
+				)
+				w.stateDB.Log("warn", "watcher", session.SessionID,
+					fmt.Sprintf("ollama unreachable at %s and fallback %s, extraction skipped", w.ollamaURL, w.ollamaFallbackURL))
+				return
+			}
+		} else {
+			w.logger.Warn("ollama unreachable, queuing for later",
+				"session_id", session.SessionID,
+				"url", w.ollamaURL,
+			)
+			w.stateDB.Log("warn", "watcher", session.SessionID,
+				fmt.Sprintf("ollama unreachable at %s, extraction skipped", w.ollamaURL))
+			return
+		}
 	}
 
 	// Parse turns.

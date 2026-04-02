@@ -114,7 +114,7 @@ func newDaemonCmd(configPath *string) *cobra.Command {
 			}
 
 			// Create extraction watcher.
-			watcher := extract.NewWatcher(stateDB, cfg.OllamaURL, cfg.OllamaModel, cfg.EngramAPI, cfg.EmbedURL, cfg.DedupThreshold, logger)
+			watcher := extract.NewWatcher(stateDB, cfg.OllamaURL, cfg.OllamaFallbackURL, cfg.OllamaModel, cfg.EngramAPI, cfg.EmbedURL, cfg.DedupThreshold, logger)
 
 			// Start HTTP hook listener.
 			ctx := cmd.Context()
@@ -152,6 +152,9 @@ func newStatusCmd(configPath *string) *cobra.Command {
 			fmt.Printf("Engram API:  %s\n", cfg.EngramAPI)
 			fmt.Printf("Listen:      %s\n", cfg.ListenAddr)
 			fmt.Printf("Ollama:      %s (%s)\n", cfg.OllamaURL, cfg.OllamaModel)
+			if cfg.OllamaFallbackURL != "" {
+				fmt.Printf("Ollama (fb): %s\n", cfg.OllamaFallbackURL)
+			}
 
 			if cfg.PullsAll() {
 				fmt.Println("Pull filter: all")

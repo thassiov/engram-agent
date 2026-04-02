@@ -16,8 +16,9 @@ type Config struct {
 	EngramDB    string      `json:"engram_db"`     // Path to engram's SQLite database.
 	EngramAPI   string      `json:"engram_api"`    // Engram HTTP API base URL.
 	ListenAddr  string      `json:"listen_addr"`   // HTTP listen address for hook notifications.
-	OllamaURL      string      `json:"ollama_url"`      // Ollama API URL for observation extraction.
-	OllamaModel    string      `json:"ollama_model"`    // Ollama model name for extraction.
+	OllamaURL         string      `json:"ollama_url"`          // Ollama API URL for observation extraction.
+	OllamaFallbackURL string      `json:"ollama_fallback_url"` // Fallback ollama URL if primary is unreachable.
+	OllamaModel       string      `json:"ollama_model"`        // Ollama model name for extraction.
 	EmbedURL       string      `json:"embed_url"`       // Fastembed service URL. Omit to skip embedding.
 	EmbedDims      int         `json:"embed_dims"`      // Embedding dimensions (default 768, must match model).
 	DedupThreshold float64     `json:"dedup_threshold"` // Cosine similarity threshold for dedup (default 0.85).
