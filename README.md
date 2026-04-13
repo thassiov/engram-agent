@@ -355,6 +355,57 @@ state.db
 └── logs             # Structured operation logs
 ```
 
+## Data Flow
+
+Two databases, two search paths:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Claude Code Session                        │
+│                                                                 │
+│   MCP: mem_search ──FTS5 keywords──▶ engram serve (:7437)      │
+│                                            │                    │
+│                                            ▼                    │
+│                                     engram.db                   │
+│                                     1500+ observations          │
+│                                     FTS5 index, no vectors      │
+│                                                                 │
+│   Bash: mem-vsearch ──semantic──▶ engram-agent (:7438)         │
+│                                        │                        │
+│                                        ▼                        │
+│                                     state.db                    │
+│                                     vectors + engram_vectors    │
+│                                     1500+ embeddings (768-dim)  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+Vector lifecycle during extraction:
+
+```
+session JSONL
+     │
+     ▼
+  1. EXTRACT ──▶ ollama ──▶ observations (state.db, status=pending)
+     │
+     ▼
+  2. EMBED ──▶ fastembed ──▶ 768-dim vector
+     │
+     ├── save to state.db/vectors (for dedup)
+     │
+     ▼
+  3. DEDUP ── cosine similarity ≥ 0.85? ── yes ──▶ mark duplicate, skip
+     │
+     no
+     │
+     ▼
+  4. SAVE ──▶ POST engram API ──▶ engram.db (returns observation ID)
+     │
+     ├── save to state.db/engram_vectors (keyed by engram.db ID)
+     │
+     ▼
+  5. SYNC ──▶ push to PG engram_vectors (every 30s)
+```
+
 ## Sync Architecture
 
 ```
