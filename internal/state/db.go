@@ -56,6 +56,11 @@ func (d *DB) Close() error {
 	return d.db.Close()
 }
 
+// RawDB returns the underlying *sql.DB for use by other packages (e.g., sync).
+func (d *DB) RawDB() *sql.DB {
+	return d.db
+}
+
 func migrate(db *sql.DB) error {
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS session_state (
@@ -97,6 +102,19 @@ func migrate(db *sql.DB) error {
 			observation_id INTEGER PRIMARY KEY REFERENCES observations(id),
 			embedding      BLOB NOT NULL,
 			dims           INTEGER NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS engram_vectors (
+			engram_obs_id  INTEGER PRIMARY KEY,
+			title          TEXT NOT NULL,
+			content        TEXT,
+			type           TEXT NOT NULL,
+			scope          TEXT NOT NULL DEFAULT 'project',
+			project        TEXT NOT NULL DEFAULT 'general',
+			topic_key      TEXT,
+			embedding      BLOB NOT NULL,
+			dims           INTEGER NOT NULL,
+			created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 		);
 
 		CREATE TABLE IF NOT EXISTS events (

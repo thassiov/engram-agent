@@ -20,17 +20,19 @@ type NotifyHandler func(n Notification)
 
 // Server listens for hook notifications from Claude Code.
 type Server struct {
-	addr    string
-	handler NotifyHandler
-	logger  *slog.Logger
+	addr          string
+	handler       NotifyHandler
+	searchHandler *SearchHandler
+	logger        *slog.Logger
 }
 
-// New creates a new notification server.
-func New(addr string, handler NotifyHandler, logger *slog.Logger) *Server {
+// New creates a new notification server. searchHandler may be nil if embedding is not configured.
+func New(addr string, handler NotifyHandler, searchHandler *SearchHandler, logger *slog.Logger) *Server {
 	return &Server{
-		addr:    addr,
-		handler: handler,
-		logger:  logger,
+		addr:          addr,
+		handler:       handler,
+		searchHandler: searchHandler,
+		logger:        logger,
 	}
 }
 
@@ -39,6 +41,9 @@ func (s *Server) ListenAndServe() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /notify", s.handleNotify)
 	mux.HandleFunc("GET /health", s.handleHealth)
+	if s.searchHandler != nil {
+		mux.HandleFunc("GET /search", s.searchHandler.Handle)
+	}
 
 	srv := &http.Server{
 		Addr:    s.addr,

@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/thassiov/engram-agent/internal/config"
+	"github.com/thassiov/engram-agent/internal/embed"
 	"github.com/thassiov/engram-agent/internal/extract"
 	"github.com/thassiov/engram-agent/internal/server"
 	"github.com/thassiov/engram-agent/internal/state"
@@ -49,6 +50,7 @@ func run() error {
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newDaemonCmd(&configPath))
 	rootCmd.AddCommand(newStatusCmd(&configPath))
+	rootCmd.AddCommand(newBackfillCmd(&configPath))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -103,6 +105,7 @@ func newDaemonCmd(configPath *string) *cobra.Command {
 
 				dsn := cfg.Postgres.DSN()
 				syncDaemon := sync.NewDaemon(cfg, sqliteDB, dsn, logger)
+				syncDaemon.SetStateDB(stateDB.RawDB())
 
 				go func() {
 					if err := syncDaemon.Run(cmd.Context()); err != nil {
@@ -116,11 +119,21 @@ func newDaemonCmd(configPath *string) *cobra.Command {
 			// Create extraction watcher.
 			watcher := extract.NewWatcher(stateDB, cfg.OllamaURL, cfg.OllamaFallbackURL, cfg.OllamaModel, cfg.EngramAPI, cfg.EmbedURL, cfg.DedupThreshold, logger)
 
+			// Create search handler if embedding is configured.
+			var searchHandler *server.SearchHandler
+			if cfg.EmbedURL != "" {
+				embedClient := embed.New(cfg.EmbedURL)
+				searchHandler = server.NewSearchHandler(stateDB, embedClient, logger)
+				if err := searchHandler.RefreshCache(); err != nil {
+					logger.Warn("initial vector cache load failed", "error", err)
+				}
+			}
+
 			// Start HTTP hook listener.
 			ctx := cmd.Context()
 			srv := server.New(cfg.ListenAddr, func(n server.Notification) {
 				watcher.HandleNotification(ctx, n.SessionID, n.Event, n.Reset)
-			}, logger)
+			}, searchHandler, logger)
 
 			go func() {
 				if err := srv.ListenAndServe(); err != nil {
@@ -200,6 +213,101 @@ func newStatusCmd(configPath *string) *cobra.Command {
 				fmt.Printf("PG mutations: %d\n", count)
 			}
 
+			return nil
+		},
+	}
+}
+
+func newBackfillCmd(configPath *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "backfill",
+		Short: "Generate embeddings for all engram.db observations missing vectors",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := config.Load(*configPath)
+			if err != nil {
+				return err
+			}
+
+			if cfg.EmbedURL == "" {
+				return fmt.Errorf("embed_url not configured")
+			}
+
+			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+				Level: slog.LevelInfo,
+			}))
+
+			// Open state DB (where vectors are stored).
+			stateDB, err := state.Open(state.DefaultPath())
+			if err != nil {
+				return fmt.Errorf("opening state DB: %w", err)
+			}
+			defer stateDB.Close()
+
+			// Open engram.db (read-only, source of all observations).
+			engramDB, err := openSQLite(cfg.EngramDB)
+			if err != nil {
+				return fmt.Errorf("opening engram DB: %w", err)
+			}
+			defer engramDB.Close()
+
+			embedClient := embed.New(cfg.EmbedURL)
+			if !embedClient.Reachable(cmd.Context()) {
+				return fmt.Errorf("embedding service at %s is unreachable", cfg.EmbedURL)
+			}
+
+			// Get IDs already backfilled.
+			existing, err := stateDB.EngramVectorIDs()
+			if err != nil {
+				return fmt.Errorf("querying existing vectors: %w", err)
+			}
+
+			// Read all observations from engram.db.
+			rows, err := engramDB.Query(`
+				SELECT id, title, COALESCE(content, ''), type, COALESCE(scope, 'project'),
+				       COALESCE(project, 'general'), COALESCE(topic_key, '')
+				FROM observations
+				WHERE deleted_at IS NULL
+			`)
+			if err != nil {
+				return fmt.Errorf("querying engram observations: %w", err)
+			}
+			defer rows.Close()
+
+			var backfilled, skipped int
+			for rows.Next() {
+				var (
+					id                                              int64
+					title, content, obsType, scope, project, topicKey string
+				)
+				if err := rows.Scan(&id, &title, &content, &obsType, &scope, &project, &topicKey); err != nil {
+					logger.Error("scanning observation", "error", err)
+					continue
+				}
+
+				if existing[id] {
+					skipped++
+					continue
+				}
+
+				text := title + "\n" + content
+				vec, err := embedClient.EmbedOne(cmd.Context(), text)
+				if err != nil {
+					logger.Error("failed to embed", "id", id, "error", err)
+					continue
+				}
+
+				if err := stateDB.SaveEngramVector(id, title, content, obsType, scope, project, topicKey, vec); err != nil {
+					logger.Error("failed to save vector", "id", id, "error", err)
+					continue
+				}
+
+				backfilled++
+				if backfilled%50 == 0 {
+					logger.Info("progress", "backfilled", backfilled)
+				}
+			}
+
+			fmt.Printf("Backfill complete: %d embedded, %d already existed.\n", backfilled, skipped)
 			return nil
 		},
 	}

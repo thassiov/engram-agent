@@ -100,6 +100,9 @@ The extraction pipeline produces structured observations with these types:
 - **Offline resilient** — extraction works without PG or embedding service, syncs catch up later
 - **Force extraction** — on-demand processing with optional full reset
 - **Event tracking** — administrative actions (resets, force extracts) are recorded
+- **Semantic vector search** — `/search` endpoint for cosine similarity search across all observations
+- **Vector sync to PG** — embeddings synced to PostgreSQL via pgvector for cross-machine search
+- **Backfill** — one-shot command to embed historical observations missing vectors
 - **Systemd integration** — watchdog, ready notification, graceful shutdown
 
 ## Install
@@ -219,6 +222,46 @@ curl -X POST http://localhost:7438/notify \
   -d '{"session_id":"<SESSION_ID>", "event":"force", "reset":true}'
 ```
 
+### Semantic Search
+
+```bash
+# Search by meaning (not keywords)
+curl "http://localhost:7438/search?q=how+does+sync+work&limit=5"
+
+# Filter by project
+curl "http://localhost:7438/search?q=TUI+library&project=grid-ui&limit=3"
+```
+
+Returns observations ranked by cosine similarity:
+
+```json
+[
+  {
+    "id": 1439,
+    "type": "decision",
+    "title": "Chose TUI library for grid-ui",
+    "content": "Decided on a TUI library...",
+    "project": "grid-ui",
+    "topic_key": "grid-ui/tui-lib",
+    "similarity": 0.798
+  }
+]
+```
+
+The search endpoint loads all vectors into memory on startup (~2MB for 1500 vectors) and refreshes every 5 minutes. It queries two sources:
+
+- `vectors` table — observations extracted by engram-agent (dedup set)
+- `engram_vectors` table — all engram.db observations (backfilled)
+
+### Backfill
+
+```bash
+# Embed all engram.db observations that don't have vectors yet
+engram-agent backfill
+```
+
+Reads every observation from engram.db, embeds via fastembed, and stores vectors in state.db's `engram_vectors` table. Idempotent — skips observations that already have vectors.
+
 ### Health Check
 
 ```bash
@@ -306,7 +349,8 @@ state.db
 ├── session_state    # Per-session tracking (turns, status)
 ├── chunks           # Processed chunks with full text content
 ├── observations     # Extracted observations (pending/saved/duplicate)
-├── vectors          # 768-dim embeddings for dedup
+├── vectors          # 768-dim embeddings for dedup (keyed by state.db obs ID)
+├── engram_vectors   # 768-dim embeddings for search (keyed by engram.db obs ID)
 ├── events           # Administrative actions audit trail
 └── logs             # Structured operation logs
 ```
@@ -328,6 +372,7 @@ state.db
          │   engram_sync_mutations  (CDC log)          │
          │   engram_sync_cursors    (watermarks)       │
          │   engram_machines        (scope registry)   │
+         │   engram_vectors         (pgvector 768-dim) │
          │                                             │
          │   NOTIFY 'engram_sync' on INSERT            │
          └──────────────────────┬──────────────────────┘
@@ -398,6 +443,8 @@ Under active development. Current state:
 - [x] Phase 2: Observation extraction pipeline (chunk, compress, save)
 - [x] Phase 3: Vector embedding + cosine similarity dedup
 - [x] Phase 4: Fastembed service deployment + model selection
+- [x] Phase 5: Semantic vector search endpoint (`/search`)
+- [x] Phase 6: Vector sync to PostgreSQL (pgvector)
 - [ ] Include assistant responses in extraction chunks
 - [ ] Improve extraction selectivity (skip trivial observations)
 

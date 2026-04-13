@@ -61,6 +61,7 @@ func (b *backoff) reset() {
 type Daemon struct {
 	cfg      *config.Config
 	sqliteDB *sql.DB
+	stateDB  *sql.DB // engram-agent state.db (for vector sync), may be nil
 	dsn      string
 	logger   *slog.Logger
 }
@@ -73,6 +74,11 @@ func NewDaemon(cfg *config.Config, sqliteDB *sql.DB, dsn string, logger *slog.Lo
 		dsn:      dsn,
 		logger:   logger,
 	}
+}
+
+// SetStateDB sets the state database for vector sync.
+func (d *Daemon) SetStateDB(db *sql.DB) {
+	d.stateDB = db
 }
 
 // Run starts the daemon and blocks until the context is canceled.
@@ -133,6 +139,17 @@ func (d *Daemon) doPush(ctx context.Context) bool {
 	if n > 0 {
 		d.logger.Info("push: mutations pushed", "count", n, "cursor", seq)
 	}
+
+	// Push vectors if state DB is available.
+	if d.stateDB != nil {
+		vn, err := PushVectors(ctx, d.stateDB, conn, d.cfg.MachineID, d.logger)
+		if err != nil {
+			d.logger.Warn("push: vector sync error", "error", err)
+		} else if vn > 0 {
+			d.logger.Info("push: vectors synced", "count", vn)
+		}
+	}
+
 	return true
 }
 

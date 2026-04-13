@@ -20,8 +20,13 @@ type engramObservation struct {
 	ToolName  string `json:"tool_name"`
 }
 
-// SaveToEngram posts an observation to the engram HTTP API.
-func SaveToEngram(ctx context.Context, baseURL, sessionID string, obs Observation) error {
+// SaveResult holds the response from the engram API after saving an observation.
+type SaveResult struct {
+	ID int64 `json:"id"`
+}
+
+// SaveToEngram posts an observation to the engram HTTP API and returns the created observation ID.
+func SaveToEngram(ctx context.Context, baseURL, sessionID string, obs Observation) (*SaveResult, error) {
 	body, err := json.Marshal(engramObservation{
 		SessionID: sessionID,
 		Type:      obs.Type,
@@ -33,24 +38,30 @@ func SaveToEngram(ctx context.Context, baseURL, sessionID string, obs Observatio
 		ToolName:  "engram-agent",
 	})
 	if err != nil {
-		return fmt.Errorf("marshaling observation: %w", err)
+		return nil, fmt.Errorf("marshaling observation: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/observations", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("sending observation: %w", err)
+		return nil, fmt.Errorf("sending observation: %w", err)
 	}
-	defer resp.Body.Close()               //nolint:errcheck
-	_, _ = io.Copy(io.Discard, resp.Body) // drain for connection reuse
+	defer resp.Body.Close() //nolint:errcheck
+
+	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 || resp.StatusCode == http.StatusConflict {
-		return nil
+		var result SaveResult
+		if err := json.Unmarshal(respBody, &result); err != nil {
+			// API saved but didn't return ID — not fatal.
+			return &SaveResult{}, nil
+		}
+		return &result, nil
 	}
-	return fmt.Errorf("unexpected status %d from engram API", resp.StatusCode)
+	return nil, fmt.Errorf("unexpected status %d from engram API", resp.StatusCode)
 }

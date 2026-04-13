@@ -19,6 +19,17 @@ type Observation struct {
 	TopicKey string `json:"topic_key"`
 }
 
+// validTypes is the set of allowed observation types.
+var validTypes = map[string]bool{
+	"config":       true,
+	"decision":     true,
+	"preference":   true,
+	"discovery":    true,
+	"bugfix":       true,
+	"architecture": true,
+	"pattern":      true,
+}
+
 // SystemPrompt is the extraction prompt for the LLM.
 const SystemPrompt = `You extract structured observations from coding session transcripts. Output ONLY valid JSONL — one JSON object per line. No markdown, no code blocks, no commentary.
 
@@ -28,13 +39,16 @@ STRICT RULES:
 - DO NOT invent details not present in the text. Only describe what actually happened.
 - DO NOT add explanations or context the user did not provide.
 - Use correct spelling for all names and tools mentioned in the conversation.
+- ONLY use the observation types listed below. NEVER invent new types. If an observation does not fit any type, skip it.
 
 Be selective. Only extract SIGNIFICANT observations worth remembering in future sessions. Skip:
 - Questions without conclusions
-- Minor actions (checking files, running diagnostic commands)
+- Minor actions (checking files, running diagnostic commands, listing directories)
 - Troubleshooting steps that led nowhere
+- Routine operations (installing packages, checking status, reading files)
+- Plans or intentions that were not acted on
 
-Observation types:
+Observation types (use ONLY these exact strings):
 - config: A configuration file was created or changed
 - decision: A choice was made between alternatives (include what and why)
 - preference: The user stated how they want things done
@@ -44,7 +58,7 @@ Observation types:
 - pattern: A convention or approach was established
 
 Each JSON object must have these fields:
-- type: one of the types above
+- type: MUST be one of: config, decision, preference, discovery, bugfix, architecture, pattern
 - title: short verb-phrase (start with a verb, max 10 words)
 - content: 2-3 sentences describing what was done/decided and why
 - scope: "personal" or "project"
@@ -82,6 +96,9 @@ func parseObservations(text string) []Observation {
 			continue
 		}
 		if obs.Type == "" || obs.Title == "" {
+			continue
+		}
+		if !validTypes[obs.Type] {
 			continue
 		}
 		if obs.Scope == "" {

@@ -261,12 +261,14 @@ func (w *Watcher) runExtraction(ctx context.Context, session *state.Session, tot
 		return
 	}
 
+	// vectorMap tracks state.db observation ID → embedding vector (populated during dedup).
+	vectorMap := make(map[int64][]float32)
 	dedupSkipped := 0
 	if w.embedURL != "" {
 		embedClient := embed.New(w.embedURL)
 		if embedClient.Reachable(ctx) {
 			existing, _ := w.stateDB.AllVectors()
-			dedupSkipped = w.embedAndDedup(ctx, embedClient, pending, existing)
+			dedupSkipped = w.embedAndDedup(ctx, embedClient, pending, existing, vectorMap)
 		} else {
 			w.logger.Warn("embed service unreachable, skipping dedup", "url", w.embedURL)
 		}
@@ -279,7 +281,7 @@ func (w *Watcher) runExtraction(ctx context.Context, session *state.Session, tot
 		return
 	}
 
-	// Save remaining observations to engram.
+	// Save remaining observations to engram + engram_vectors (transactional).
 	saved := 0
 	for _, p := range pending {
 		obs := Observation{
@@ -290,13 +292,24 @@ func (w *Watcher) runExtraction(ctx context.Context, session *state.Session, tot
 			Project:  p.Project,
 			TopicKey: p.TopicKey,
 		}
-		if err := SaveToEngram(ctx, w.engramAPI, session.SessionID, obs); err != nil {
+		result, err := SaveToEngram(ctx, w.engramAPI, session.SessionID, obs)
+		if err != nil {
 			w.logger.Warn("failed to save to engram", "title", p.Title, "error", err)
 			continue
 		}
 		if err := w.stateDB.MarkObservationSaved(p.ID); err != nil {
 			w.logger.Warn("failed to mark observation saved", "id", p.ID, "error", err)
 		}
+
+		// Save vector to engram_vectors keyed by engram.db observation ID.
+		if result.ID > 0 {
+			if vec, ok := vectorMap[p.ID]; ok {
+				if err := w.stateDB.SaveEngramVector(result.ID, p.Title, p.Content, p.Type, p.Scope, p.Project, p.TopicKey, vec); err != nil {
+					w.logger.Warn("failed to save engram vector", "engram_id", result.ID, "error", err)
+				}
+			}
+		}
+
 		saved++
 	}
 
@@ -318,8 +331,9 @@ func (w *Watcher) runExtraction(ctx context.Context, session *state.Session, tot
 }
 
 // embedAndDedup embeds new observations and marks duplicates based on cosine similarity.
+// Populates vectorMap with state.db observation ID → embedding for non-duplicate observations.
 // Returns the number of observations marked as duplicate.
-func (w *Watcher) embedAndDedup(ctx context.Context, embedClient *embed.Client, pending []state.PendingObservation, existing []state.VectorEntry) int {
+func (w *Watcher) embedAndDedup(ctx context.Context, embedClient *embed.Client, pending []state.PendingObservation, existing []state.VectorEntry, vectorMap map[int64][]float32) int {
 	if len(pending) == 0 {
 		return 0
 	}
@@ -370,6 +384,7 @@ func (w *Watcher) embedAndDedup(ctx context.Context, embedClient *embed.Client, 
 		if err := w.stateDB.SaveVector(p.ID, vec); err != nil {
 			w.logger.Warn("failed to save vector", "id", p.ID, "error", err)
 		}
+		vectorMap[p.ID] = vec
 		existing = append(existing, state.VectorEntry{ObservationID: p.ID, Vector: vec})
 	}
 
